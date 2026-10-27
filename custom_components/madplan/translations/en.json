@@ -1,0 +1,49 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Set up Meal Plan",
+        "description": "Enter the URL of your Google Docs meal plan and select the AI model to extract today's dinner.",
+        "data": {
+          "google_doc_url": "Google Docs URL",
+          "ai_entity": "AI Task / Model",
+          "update_time": "Daily update time",
+          "sync_entity": "Sync to helper (optional)"
+        }
+      }
+    },
+    "error": {
+      "invalid_url": "Invalid Google Docs URL"
+    },
+    "abort": {
+      "single_instance_allowed": "Meal Plan is already configured."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Meal Plan Options",
+        "description": "Adjust the document URL, update time, or AI instructions.",
+        "data": {
+          "google_doc_url": "Google Docs URL",
+          "ai_entity": "AI Task / Model",
+          "update_time": "Daily update time",
+          "sync_entity": "Sync to helper",
+          "ai_prompt": "AI Instructions (Prompt)"
+        }
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "dagens_ret": {
+        "name": "Today's dinner"
+      }
+    },
+    "button": {
+      "opdater": {
+        "name": "Refresh meal plan"
+      }
+    }
+  }
+}

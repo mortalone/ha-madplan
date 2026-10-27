@@ -1,0 +1,49 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Opsæt Madplan",
+        "description": "Indtast linket til jeres Google Docs madplan og vælg den AI-model der skal udtrække dagens ret.",
+        "data": {
+          "google_doc_url": "Google Docs URL",
+          "ai_entity": "AI Task / Model",
+          "update_time": "Dagligt opdateringstidspunkt",
+          "sync_entity": "Synkroniser til hjælper (valgfrit)"
+        }
+      }
+    },
+    "error": {
+      "invalid_url": "Ugyldig URL til Google Docs"
+    },
+    "abort": {
+      "single_instance_allowed": "Madplan er allerede konfigureret."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Indstillinger for Madplan",
+        "description": "Her kan du justere linket til dokumentet, opdateringstidspunktet eller AI-instruktionerne.",
+        "data": {
+          "google_doc_url": "Google Docs URL",
+          "ai_entity": "AI Task / Model",
+          "update_time": "Dagligt opdateringstidspunkt",
+          "sync_entity": "Synkroniser til hjælper",
+          "ai_prompt": "AI Instruktioner (Prompt)"
+        }
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "dagens_ret": {
+        "name": "Dagens ret"
+      }
+    },
+    "button": {
+      "opdater": {
+        "name": "Opdater madplan"
+      }
+    }
+  }
+}

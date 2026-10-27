@@ -1,0 +1,11 @@
+{
+  "domain": "madplan",
+  "name": "Madplan",
+  "codeowners": ["@mortalone"],
+  "config_flow": true,
+  "documentation": "https://github.com/mortalone/ha-madplan",
+  "integration_type": "service",
+  "iot_class": "cloud_polling",
+  "issue_tracker": "https://github.com/mortalone/ha-madplan/issues",
+  "version": "1.0.0"
+}
