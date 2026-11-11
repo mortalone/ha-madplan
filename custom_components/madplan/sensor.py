@@ -57,6 +57,9 @@ class MadplanDishSensor(CoordinatorEntity[MadplanCoordinator], SensorEntity):
         if not self.coordinator.data:
             return {}
         return {
+            "uge": self.coordinator.data.get("uge"),
+            "ugedag": self.coordinator.data.get("ugedag"),
+            "dato": self.coordinator.data.get("dato"),
             "sidst_opdateret": self.coordinator.data.get("sidst_opdateret"),
             "google_doc_url": self.coordinator.data.get("google_doc_url"),
             "preview": self.coordinator.data.get("raw_text_preview"),

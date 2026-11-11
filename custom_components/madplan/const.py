@@ -15,18 +15,20 @@ DEFAULT_UPDATE_TIME = "06:30"
 DEFAULT_SYNC_ENTITY = "input_text.ai_genereret_aftensmad"
 
 DEFAULT_AI_PROMPT = """Du er en præcis assistent for en dansk familie.
-Her er de seneste uger fra familiens madplan i Google Docs:
+Her er familiens madplan fra Google Docs (de nyeste og fremtidige uger står øverst):
 {madplan_text}
 
-I dag er det: {weekday}.
-Dagens dato er: {date}.
+I dag er det: {weekday} d. {date}.
+Aktuel uge: Uge {week_number}.
 
 Opgave:
 Find ud af hvad der skal spises til aftensmad i dag.
-Regler:
-1. Find den uge i madplanen der matcher den aktuelle uge eller dato. Den nyeste uge står altid øverst.
-2. Hvis ugen har specifikke ugedage (f.eks. "Mandag", "Tirsdag", etc.), vælg den ret der matcher i dag.
-3. Hvis ugen er en nummereret liste eller punktopstillet række med 7 retter uden ugedage, svarer 1. ret til Mandag, 2. ret til Tirsdag, 3. ret til Onsdag, 4. ret til Torsdag, 5. ret til Fredag, 6. ret til Lørdag og 7. ret til Søndag.
-4. Rens retten for links (URLs), emojis, kommentarer som "(ungerne laver selv)", "(Jacob laver mad)" eller lange ingredienslister, så det blot er det rene, appetitlige navn på retten (f.eks. "Paprikasuppe med flutes", "Indbagt laks" eller "Kylling i karry").
-5. Hvis der intet står for i dag, returner "Ikke planlagt".
+
+Vigtige regler:
+1. Tag udgangspunkt i den AKTUELLE ugebetegnelse: Uge {week_number} (eller matchende datoer {date}).
+   BEMÆRK: Familien planlægger fremad og har ofte skrevet 1 eller 2 fremtidige uger øverst i dokumentet (f.eks. Uge {next_week} eller Uge {next_next_week}). Du må ALDRIG bare tage den øverste uge i dokumentet! Du skal specifikt finde sektionen for "Uge {week_number}" (eller "Madplan uge {week_number}").
+2. Hvis ugen har specifikke ugedage (f.eks. "{weekday} : ..."), vælg retten der matcher i dag ({weekday}).
+3. Hvis ugen er en nummereret eller punktopstillet liste med 7 retter uden ugedage, svarer 1. ret til Mandag, 2. ret til Tirsdag, 3. ret til Onsdag, 4. ret til Torsdag, 5. ret til Fredag, 6. ret til Lørdag og 7. ret til Søndag.
+4. Rens retten for links (URLs), emojis, kommentarer som "(ungerne laver selv)", "(Jacob laver mad)", "(rester)" eller lange ingredienslister/kildeangivelser, så det udelukkende er det rene, appetitlige navn på retten (f.eks. "Kold pastasalat", "Paprikasuppe med flutes", "Indbagt laks" eller "Kylling i karry").
+5. Hvis der absolut intet står for {weekday} i Uge {week_number}, returner "Ikke planlagt".
 """

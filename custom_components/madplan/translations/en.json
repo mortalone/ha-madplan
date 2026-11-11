@@ -23,7 +23,7 @@
     "step": {
       "init": {
         "title": "Meal Plan Options",
-        "description": "Adjust the document URL, update time, or AI instructions.",
+        "description": "Adjust the document URL, update time, or AI instructions.\nAvailable variables: {madplan_text}, {weekday}, {date}, {week_number}, {next_week}, {next_next_week}, {prev_week}, {year}.",
         "data": {
           "google_doc_url": "Google Docs URL",
           "ai_entity": "AI Task / Model",

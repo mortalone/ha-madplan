@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
 import aiohttp
@@ -139,24 +139,34 @@ class MadplanCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     raise UpdateFailed(
                         f"Fejl ved download af Google Doc (HTTP {resp.status})"
                     )
-                doc_text = await resp.text(encoding="utf-8")
+                doc_text = (await resp.text(encoding="utf-8")).lstrip("\ufeff")
         except Exception as err:
             raise UpdateFailed(f"Kunne ikke forbinde til Google Docs: {err}") from err
 
         if not doc_text or not doc_text.strip():
             raise UpdateFailed("Det hentede Google Doc er tomt")
 
-        # De seneste uger findes øverst i dokumentet
-        text_preview = doc_text[:3500]
+        # De seneste uger findes øverst i dokumentet. Sættes til 15000 tegn så fremadrettede uger
+        # med opskrifter/noter ikke afskærer den aktuelle uges retter.
+        text_preview = doc_text[:15000]
 
         now = dt_util.now()
         weekday_name = DANISH_WEEKDAYS[now.weekday()]
         date_str = now.strftime("%d/%m")
+        iso_year, week_number, iso_weekday = now.isocalendar()
+        next_week = (now + timedelta(days=7)).isocalendar().week
+        next_next_week = (now + timedelta(days=14)).isocalendar().week
+        prev_week = (now - timedelta(days=7)).isocalendar().week
 
         prompt = self.ai_prompt
         prompt = prompt.replace("{madplan_text}", text_preview)
         prompt = prompt.replace("{weekday}", weekday_name)
         prompt = prompt.replace("{date}", date_str)
+        prompt = prompt.replace("{week_number}", str(week_number))
+        prompt = prompt.replace("{next_week}", str(next_week))
+        prompt = prompt.replace("{next_next_week}", str(next_next_week))
+        prompt = prompt.replace("{prev_week}", str(prev_week))
+        prompt = prompt.replace("{year}", str(now.year))
 
         dagens_ret = "Ikke fundet"
 
@@ -211,6 +221,9 @@ class MadplanCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         return {
             "dagens_ret": dagens_ret,
+            "uge": week_number,
+            "ugedag": weekday_name,
+            "dato": date_str,
             "sidst_opdateret": now.isoformat(),
             "google_doc_url": self.google_doc_url,
             "raw_text_preview": text_preview[:200],
