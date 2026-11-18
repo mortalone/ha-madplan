@@ -60,7 +60,13 @@ class MadplanDishSensor(CoordinatorEntity[MadplanCoordinator], SensorEntity):
             "uge": self.coordinator.data.get("uge"),
             "ugedag": self.coordinator.data.get("ugedag"),
             "dato": self.coordinator.data.get("dato"),
+            "dagens_kok": self.coordinator.data.get("dagens_kok"),
+            "dagens_note": self.coordinator.data.get("dagens_note"),
+            "ugens_madplan": self.coordinator.data.get("ugens_madplan"),
+            "naeste_uges_madplan": self.coordinator.data.get("naeste_uges_madplan"),
+            "naeste_uge_nummer": self.coordinator.data.get("naeste_uge_nummer"),
             "sidst_opdateret": self.coordinator.data.get("sidst_opdateret"),
             "google_doc_url": self.coordinator.data.get("google_doc_url"),
             "preview": self.coordinator.data.get("raw_text_preview"),
         }
+

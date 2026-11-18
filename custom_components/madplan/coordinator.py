@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import logging
+import re
 from datetime import datetime, timedelta
 from typing import Any
+
 
 import aiohttp
 from homeassistant.core import HomeAssistant
@@ -54,7 +56,95 @@ def normalize_google_doc_url(url: str) -> str:
     return f"{clean_url}/export?format=txt"
 
 
+def parse_week_section(content: str) -> list[dict[str, Any]]:
+    """Parse 7 days of meals and cook from a week section."""
+    days = DANISH_WEEKDAYS
+    result = []
+    lines = [line.strip() for line in content.split("\n") if line.strip()]
+
+    # 1. Match day names (Mandag : Ret)
+    day_matches = {}
+    for line in lines:
+        for idx, day_name in enumerate(days):
+            m = re.match(rf"^{day_name}\b[:\s-]*(.*)", line, re.IGNORECASE)
+            if m:
+                day_matches[idx] = m.group(1).strip()
+                break
+
+    if len(day_matches) >= 3:
+        for idx, day_name in enumerate(days):
+            raw = day_matches.get(idx, "Ikke planlagt")
+            result.append({"dag": day_name, "raw": raw})
+    else:
+        # 2. Match numbered list 1-7
+        num_matches = {}
+        for line in lines:
+            m = re.match(r"^([1-7])[\.\:\s-]+(.*)", line)
+            if m:
+                num = int(m.group(1))
+                num_matches[num - 1] = m.group(2).strip()
+        for idx, day_name in enumerate(days):
+            raw = num_matches.get(idx, "Ikke planlagt")
+            result.append({"dag": day_name, "raw": raw})
+
+    # Clean dish name and parse cook
+    clean_result = []
+    for item in result:
+        raw = item["raw"]
+        if raw == "Ikke planlagt" or not raw:
+            clean_result.append({
+                "dag": item["dag"],
+                "ret": "Ikke planlagt",
+                "kok": "—",
+                "note": "",
+                "er_planlagt": False,
+            })
+            continue
+
+        # Extract notes in parentheses
+        notes = re.findall(r"\((.*?)\)", raw)
+        note_str = ", ".join(notes)
+
+        # Determine cook
+        cook = "Far / Mor"
+        raw_lower = raw.lower()
+        if any(w in raw_lower for w in ["jacob", "far"]):
+            cook = "Far"
+        elif any(w in raw_lower for w in ["dicte", "malte", "silje", "ungerne", "børnene"]):
+            cook = "Børnene"
+        elif "lotte" in raw_lower or "mor" in raw_lower:
+            cook = "Mor"
+
+        # Clean dish name
+        clean_ret = re.sub(r"\(.*?\)", "", raw)
+        clean_ret = re.sub(r"https?://\S+", "", clean_ret)
+        clean_ret = re.sub(r"[🍲🐟🌮🥬🌭🍳🍤🥪🍝🧀🍗🥗🥙]", "", clean_ret)
+        clean_ret = clean_ret.strip(" -:–,")
+
+        clean_result.append({
+            "dag": item["dag"],
+            "ret": clean_ret if clean_ret else raw,
+            "kok": cook,
+            "note": note_str,
+            "er_planlagt": True,
+        })
+    return clean_result
+
+
+def get_week_plan(doc_text: str, target_week: int) -> list[dict[str, Any]] | None:
+    """Find and parse a specific week number from the Google Doc text."""
+    weeks = re.split(r"(?i)(?:^|\n)\s*(?:madplan\s*)?uge\s*(\d+)", doc_text)
+    for i in range(1, len(weeks), 2):
+        try:
+            if int(weeks[i]) == target_week:
+                return parse_week_section(weeks[i + 1])
+        except (ValueError, IndexError):
+            continue
+    return None
+
+
 class MadplanCoordinator(DataUpdateCoordinator[dict[str, Any]]):
+
     """Coordinator to fetch Google Doc meal plan and query AI."""
 
     def __init__(self, hass: HomeAssistant, entry_data: dict[str, Any]) -> None:
@@ -158,48 +248,67 @@ class MadplanCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         next_next_week = (now + timedelta(days=14)).isocalendar().week
         prev_week = (now - timedelta(days=7)).isocalendar().week
 
-        prompt = self.ai_prompt
-        prompt = prompt.replace("{madplan_text}", text_preview)
-        prompt = prompt.replace("{weekday}", weekday_name)
-        prompt = prompt.replace("{date}", date_str)
-        prompt = prompt.replace("{week_number}", str(week_number))
-        prompt = prompt.replace("{next_week}", str(next_week))
-        prompt = prompt.replace("{next_next_week}", str(next_next_week))
-        prompt = prompt.replace("{prev_week}", str(prev_week))
-        prompt = prompt.replace("{year}", str(now.year))
+        # Parse ugens madplan og næste uges madplan direkte fra de seneste uger
+        ugens_madplan = get_week_plan(text_preview, week_number)
+        naeste_uges_madplan = get_week_plan(text_preview, next_week)
 
+        # Flag 'er_i_dag' på ugens madplan samt find dagens ret & kok
         dagens_ret = "Ikke fundet"
+        dagens_kok = "Far / Mor"
+        dagens_note = ""
 
-        # Kald Home Assistant AI Task
-        try:
-            ai_res = await self.hass.services.async_call(
-                "ai_task",
-                "generate_data",
-                {
-                    "entity_id": self.ai_entity,
-                    "task_name": "Find dagens aftensmad",
-                    "instructions": prompt,
-                    "structure": {
-                        "dagens_ret": {
-                            "description": "Det rene navn på dagens ret",
-                            "required": True,
-                            "selector": {"text": {"multiline": False}},
-                        }
+        if ugens_madplan and len(ugens_madplan) > now.weekday():
+            today_item = ugens_madplan[now.weekday()]
+            if today_item.get("er_planlagt"):
+                dagens_ret = today_item.get("ret", "Ikke fundet")
+                dagens_kok = today_item.get("kok", "Far / Mor")
+                dagens_note = today_item.get("note", "")
+
+        for idx, item in enumerate(ugens_madplan or []):
+            item["er_i_dag"] = (idx == now.weekday())
+
+        # Hvis regex ikke fandt dagens ret (eller den er uplanlagt), fallback til AI Task
+        if not dagens_ret or dagens_ret in ["Ikke fundet", "Ikke planlagt"]:
+            prompt = self.ai_prompt
+            prompt = prompt.replace("{madplan_text}", text_preview)
+            prompt = prompt.replace("{weekday}", weekday_name)
+            prompt = prompt.replace("{date}", date_str)
+            prompt = prompt.replace("{week_number}", str(week_number))
+            prompt = prompt.replace("{next_week}", str(next_week))
+            prompt = prompt.replace("{next_next_week}", str(next_next_week))
+            prompt = prompt.replace("{prev_week}", str(prev_week))
+            prompt = prompt.replace("{year}", str(now.year))
+
+            try:
+                ai_res = await self.hass.services.async_call(
+                    "ai_task",
+                    "generate_data",
+                    {
+                        "entity_id": self.ai_entity,
+                        "task_name": "Find dagens aftensmad",
+                        "instructions": prompt,
+                        "structure": {
+                            "dagens_ret": {
+                                "description": "Det rene navn på dagens ret",
+                                "required": True,
+                                "selector": {"text": {"multiline": False}},
+                            }
+                        },
                     },
-                },
-                blocking=True,
-                return_response=True,
-            )
+                    blocking=True,
+                    return_response=True,
+                )
 
-            if isinstance(ai_res, dict):
-                data = ai_res.get("data")
-                if isinstance(data, dict):
-                    dagens_ret = data.get("dagens_ret", "Ikke fundet")
-                elif isinstance(data, str):
-                    dagens_ret = data
-        except Exception as err:
-            _LOGGER.warning("Fejl ved kald til %s: %s", self.ai_entity, err)
-            dagens_ret = "Fejl ved AI analyse"
+                if isinstance(ai_res, dict):
+                    data = ai_res.get("data")
+                    if isinstance(data, dict):
+                        dagens_ret = data.get("dagens_ret", "Ikke fundet")
+                    elif isinstance(data, str):
+                        dagens_ret = data
+            except Exception as err:
+                _LOGGER.warning("Fejl ved kald til %s: %s", self.ai_entity, err)
+                if not dagens_ret:
+                    dagens_ret = "Fejl ved AI analyse"
 
         # Rens svar hvis nødvendigt
         if dagens_ret:
@@ -221,13 +330,19 @@ class MadplanCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         return {
             "dagens_ret": dagens_ret,
+            "dagens_kok": dagens_kok,
+            "dagens_note": dagens_note,
+            "ugens_madplan": ugens_madplan or [],
+            "naeste_uges_madplan": naeste_uges_madplan,
+            "naeste_uge_nummer": next_week,
             "uge": week_number,
             "ugedag": weekday_name,
             "dato": date_str,
             "sidst_opdateret": now.isoformat(),
             "google_doc_url": self.google_doc_url,
-            "raw_text_preview": text_preview[:200],
+            "raw_text_preview": text_preview[:2000],
         }
+
 
     def async_unload(self) -> None:
         """Clean up registered timer."""
