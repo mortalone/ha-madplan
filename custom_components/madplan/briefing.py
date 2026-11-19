@@ -207,12 +207,53 @@ async def _build_ugens_briefing(hass: HomeAssistant) -> dict[str, Any]:
         "ugentlig_basis": "Skummetmælk, rugbrød, smør, pålæg, æg, frugt/gnavegrønt",
     }
 
-    # 4. Read best offers from sensors
+    # 4. Read best offers from sensors (split into active now and upcoming)
     def _get_best_offer(sensor_id: str) -> dict[str, Any] | None:
         state = hass.states.get(sensor_id)
-        if state:
-            return state.attributes.get("best_offer")
-        return None
+        if not state:
+            return None
+        offers = state.attributes.get("offers") or []
+        now_dt = datetime.datetime.now(datetime.timezone.utc)
+        active_list = []
+        upcoming_list = []
+        for o in offers:
+            rf = o.get("run_from")
+            rt = o.get("run_till")
+            try:
+                f_dt = datetime.datetime.fromisoformat(rf.replace("Z", "+00:00")) if rf else None
+                t_dt = datetime.datetime.fromisoformat(rt.replace("Z", "+00:00")) if rt else None
+            except Exception:
+                f_dt, t_dt = None, None
+            if f_dt and t_dt:
+                if f_dt <= now_dt <= t_dt:
+                    active_list.append(o)
+                elif f_dt > now_dt:
+                    upcoming_list.append(o)
+
+        best_act = min(active_list, key=lambda x: x.get("price", 9999)) if active_list else None
+        best_up = min(upcoming_list, key=lambda x: x.get("price", 9999)) if upcoming_list else None
+
+        result: dict[str, Any] = {}
+        if best_act:
+            result["aktivt_nu"] = {
+                "butik": best_act.get("store"),
+                "navn": best_act.get("heading"),
+                "pris": best_act.get("price"),
+                "enhed": best_act.get("description"),
+                "udlober": best_act.get("run_till", "")[:10] if best_act.get("run_till") else "",
+            }
+        if best_up:
+            result["kommende"] = {
+                "butik": best_up.get("store"),
+                "navn": best_up.get("heading"),
+                "pris": best_up.get("price"),
+                "enhed": best_up.get("description"),
+                "gaelder_fra": best_up.get("run_from", "")[:10] if best_up.get("run_from") else "",
+                "udlober": best_up.get("run_till", "")[:10] if best_up.get("run_till") else "",
+            }
+        if not result and state.attributes.get("best_offer"):
+            result["best_offer"] = state.attributes.get("best_offer")
+        return result
 
     ugens_bedste_tilbud = {
         "lurpak": _get_best_offer("sensor.tilbud_lurpak"),
