@@ -200,6 +200,10 @@ async def _build_ugens_briefing(hass: HomeAssistant) -> dict[str, Any]:
             "input_text.radar_pleje_3_5_uger",
             "Tandstikker m/tandtråd, tandpasta, trusseindlæg/bind, håndsæbe, shampoo",
         ),
+        "drikkevarer": _get_helper(
+            "input_text.radar_drikkevarer",
+            "1664 Blanc, Pepsi Max",
+        ),
         "ugentlig_basis": "Skummetmælk, rugbrød, smør, pålæg, æg, frugt/gnavegrønt",
     }
 
@@ -215,6 +219,7 @@ async def _build_ugens_briefing(hass: HomeAssistant) -> dict[str, Any]:
         "hakket_oksekod": _get_best_offer("sensor.tilbud_hakket_oksekod"),
         "kyllingebryst": _get_best_offer("sensor.tilbud_kyllingebryst"),
         "pepsi_max": _get_best_offer("sensor.tilbud_pepsi_max"),
+        "blanc_1664": _get_best_offer("sensor.tilbud_1664_blanc"),
     }
 
     # 5. Extract events for individual calendars
