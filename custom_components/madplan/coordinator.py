@@ -252,6 +252,105 @@ class MadplanCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         ugens_madplan = get_week_plan(text_preview, week_number)
         naeste_uges_madplan = get_week_plan(text_preview, next_week)
 
+        # Berig ugens madplan med Quinyx vagter og familiens kalender
+        cal_events = {}
+        try:
+            monday_dt = now - timedelta(days=now.weekday())
+            sunday_dt = monday_dt + timedelta(days=7)
+            cal_res = await self.hass.services.async_call(
+                "calendar",
+                "get_events",
+                {
+                    "start_date_time": monday_dt.strftime("%Y-%m-%dT00:00:00"),
+                    "end_date_time": sunday_dt.strftime("%Y-%m-%dT23:59:59"),
+                },
+                target={
+                    "entity_id": [
+                        "calendar.webcal_app_quinyx_com_webcal_id_0522d9330dd20f48274897f77cad1c13",
+                        "calendar.webcal_app_quinyx_com_webcal_id_110e6dcba970bdf665a37998cd88b8cf",
+                        "calendar.fam_nyrup_hansen_dk",
+                    ]
+                },
+                blocking=True,
+                return_response=True,
+            )
+            if isinstance(cal_res, dict):
+                cal_events = cal_res.get("service_response") or cal_res
+        except Exception as err:
+            _LOGGER.debug("Kunne ikke hente kalenderbegivenheder til madplan: %s", err)
+
+        lotte_events = cal_events.get("calendar.webcal_app_quinyx_com_webcal_id_0522d9330dd20f48274897f77cad1c13", {}).get("events", [])
+        jacob_events = cal_events.get("calendar.webcal_app_quinyx_com_webcal_id_110e6dcba970bdf665a37998cd88b8cf", {}).get("events", [])
+        fam_events = cal_events.get("calendar.fam_nyrup_hansen_dk", {}).get("events", [])
+
+        monday_dt = now - timedelta(days=now.weekday())
+        for idx, item in enumerate(ugens_madplan or []):
+            item["er_i_dag"] = (idx == now.weekday())
+            day_dt = monday_dt + timedelta(days=idx)
+            day_str = day_dt.strftime("%Y-%m-%d")
+
+            # Tjek Lottes vagt
+            lotte_work = False
+            lotte_time = ""
+            for ev in lotte_events:
+                s = str(ev.get("start", ""))[:10]
+                e = str(ev.get("end", ""))[:10]
+                if s <= day_str <= e:
+                    summ = str(ev.get("summary", "")).lower()
+                    desc = str(ev.get("description", "")).lower()
+                    if "fridøgn" not in summ and "fridøgn" not in desc:
+                        lotte_work = True
+                        st = str(ev.get("start", ""))[11:16]
+                        et = str(ev.get("end", ""))[11:16]
+                        lotte_time = f"{st}–{et}" if st and et else "arbejder"
+
+            # Tjek Jacobs vagt
+            jacob_work = False
+            jacob_time = ""
+            for ev in jacob_events:
+                s = str(ev.get("start", ""))[:10]
+                e = str(ev.get("end", ""))[:10]
+                if s <= day_str <= e:
+                    summ = str(ev.get("summary", "")).lower()
+                    desc = str(ev.get("description", "")).lower()
+                    if "fridøgn" not in summ and "fridøgn" not in desc:
+                        jacob_work = True
+                        st = str(ev.get("start", ""))[11:16]
+                        et = str(ev.get("end", ""))[11:16]
+                        jacob_time = f"{st}–{et}" if st and et else "arbejder"
+
+            # Tjek familiens arrangementer (f.eks. julefrokost, fest, spiser ude)
+            fam_note = ""
+            jacob_away = False
+            for ev in fam_events:
+                s = str(ev.get("start", ""))[:10]
+                if s == day_str:
+                    summ = str(ev.get("summary", ""))
+                    summ_l = summ.lower()
+                    if any(w in summ_l for w in ["julefrokost", "fest", "spiser ude", "fødselsdag"]):
+                        st = str(ev.get("start", ""))[11:16]
+                        fam_note = f"{summ} ({st})" if st else summ
+                        if "far" in summ_l or "jacob" in summ_l:
+                            jacob_away = True
+
+            # Hvis der ikke er sat en eksplicit manuel kok i Google Doc'et (default 'Far / Mor')
+            manual_note = item.get("note", "")
+            if item.get("kok") in ["Far / Mor", "—", ""]:
+                if jacob_away:
+                    item["kok"] = "Mor"
+                    item["note"] = manual_note or fam_note or "Far spiser ude"
+                elif lotte_work and not jacob_work:
+                    item["kok"] = "Far"
+                    item["note"] = manual_note or f"Mor arbejder ({lotte_time})"
+                elif not lotte_work and jacob_work:
+                    item["kok"] = "Mor"
+                    item["note"] = manual_note or f"Far arbejder ({jacob_time})"
+                elif lotte_work and jacob_work:
+                    item["kok"] = "Ungerne alene"
+                    item["note"] = manual_note or "Begge arbejder"
+                elif fam_note:
+                    item["note"] = manual_note or fam_note
+
         # Flag 'er_i_dag' på ugens madplan samt find dagens ret & kok
         dagens_ret = "Ikke fundet"
         dagens_kok = "Far / Mor"
@@ -263,9 +362,6 @@ class MadplanCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 dagens_ret = today_item.get("ret", "Ikke fundet")
                 dagens_kok = today_item.get("kok", "Far / Mor")
                 dagens_note = today_item.get("note", "")
-
-        for idx, item in enumerate(ugens_madplan or []):
-            item["er_i_dag"] = (idx == now.weekday())
 
         # Hvis regex ikke fandt dagens ret (eller den er uplanlagt), fallback til AI Task
         if not dagens_ret or dagens_ret in ["Ikke fundet", "Ikke planlagt"]:
