@@ -12,7 +12,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import llm
 
-from .briefing import async_get_ugens_briefing
+from .briefing import async_get_ugens_briefing, invalidate_briefing_cache
 from .const import DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
@@ -28,9 +28,16 @@ class HentUgensBriefingTool(llm.Tool):
     description = (
         "Henter ugens live briefing fra Home Assistant (Quinyx vagter for Jacob og Lotte, "
         "børnenes planer, helligdage, sæson, genkøbsradar for faste forbrugsvarer, "
-        "familiens madregler og ugens bedste lokale tilbud)."
+        "familiens madregler og ugens bedste lokale tilbud). "
+        "Returneres lynhurtigt fra hukommelses-cache."
     )
-    parameters = vol.Schema({})
+    parameters = vol.Schema({
+        vol.Optional(
+            "force_refresh",
+            default=False,
+            description="Valgfrit: Sæt til True hvis der ønskes frisk genindlæsning direkte fra eksterne kalendere frem for cachen.",
+        ): bool,
+    })
 
     async def async_call(
         self,
@@ -39,7 +46,8 @@ class HentUgensBriefingTool(llm.Tool):
         llm_context: llm.LLMContext,
     ) -> dict[str, Any]:
         """Execute the tool and return the live briefing."""
-        return await async_get_ugens_briefing(hass)
+        force = bool(tool_input.tool_args.get("force_refresh", False))
+        return await async_get_ugens_briefing(hass, force=force)
 
 
 class HentRemaIndkobslisteTool(llm.Tool):
@@ -134,6 +142,9 @@ class TilfojVarerTilRemaTool(llm.Tool):
             )
             added_count += 1
 
+        if added_count > 0:
+            invalidate_briefing_cache()
+
         return {
             "status": "success",
             "count": added_count,
@@ -187,6 +198,9 @@ def async_register_madplan_mcp(
     _LOGGER.info(
         "Madplan LLM API registreret! Eksponeret via Home Assistant MCP på /api/mcp/madplan"
     )
+
+    # Forvarm cachen i baggrunden, så briefing altid svarer prompte (<0.1s)
+    hass.async_create_task(async_get_ugens_briefing(hass, force=True))
 
 
 def async_unregister_madplan_mcp(hass: HomeAssistant) -> None:

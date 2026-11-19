@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import datetime
 import logging
 from typing import Any
@@ -9,6 +10,17 @@ from typing import Any
 from homeassistant.core import HomeAssistant
 
 _LOGGER = logging.getLogger(__name__)
+
+_CACHED_BRIEFING: dict[str, Any] | None = None
+_CACHE_TIMESTAMP: datetime.datetime | None = None
+_CACHE_TTL = datetime.timedelta(minutes=30)
+_FETCH_LOCK: asyncio.Lock | None = None
+
+
+def invalidate_briefing_cache() -> None:
+    """Invalidate cache when items are modified."""
+    global _CACHE_TIMESTAMP
+    _CACHE_TIMESTAMP = None
 
 CALENDARS = [
     "calendar.webcal_app_quinyx_com_webcal_id_0522d9330dd20f48274897f77cad1c13",
@@ -46,7 +58,37 @@ WEEKDAYS_DA = [
 ]
 
 
-async def async_get_ugens_briefing(hass: HomeAssistant) -> dict[str, Any]:
+async def async_get_ugens_briefing(
+    hass: HomeAssistant, force: bool = False
+) -> dict[str, Any]:
+    """Fetch calendar events, todo items, rules and offers with intelligent caching."""
+    global _CACHED_BRIEFING, _CACHE_TIMESTAMP, _FETCH_LOCK
+    now = datetime.datetime.now()
+
+    if not force and _CACHED_BRIEFING is not None and _CACHE_TIMESTAMP is not None:
+        if now - _CACHE_TIMESTAMP < _CACHE_TTL:
+            res = dict(_CACHED_BRIEFING)
+            res["cached"] = True
+            res["sidst_opdateret"] = _CACHE_TIMESTAMP.strftime("%H:%M:%S")
+            return res
+
+    if _FETCH_LOCK is None:
+        _FETCH_LOCK = asyncio.Lock()
+
+    async with _FETCH_LOCK:
+        if not force and _CACHED_BRIEFING is not None and _CACHE_TIMESTAMP is not None:
+            if datetime.datetime.now() - _CACHE_TIMESTAMP < _CACHE_TTL:
+                return _CACHED_BRIEFING
+
+        _LOGGER.info("Opdaterer Madplan ugebriefing fra kalendere og REMA...")
+        briefing = await _build_ugens_briefing(hass)
+        _CACHED_BRIEFING = briefing
+        _CACHE_TIMESTAMP = datetime.datetime.now()
+        briefing["sidst_opdateret"] = _CACHE_TIMESTAMP.strftime("%H:%M:%S")
+        return briefing
+
+
+async def _build_ugens_briefing(hass: HomeAssistant) -> dict[str, Any]:
     """Fetch calendar events, todo items, rules and offers, then build briefing."""
     now = datetime.datetime.now()
     cur_m = now.month
