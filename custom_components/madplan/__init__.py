@@ -11,6 +11,7 @@ from homeassistant.core import HomeAssistant, ServiceCall
 
 from .const import DOMAIN
 from .coordinator import MadplanCoordinator
+from .mcp import async_register_madplan_mcp, async_unregister_madplan_mcp
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -43,6 +44,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if not hass.services.has_service(DOMAIN, "update"):
         hass.services.async_register(DOMAIN, "update", handle_update)
 
+    # Registrer Madplan LLM API og MCP integration
+    try:
+        async_register_madplan_mcp(hass, entry)
+    except Exception as err:
+        _LOGGER.warning("Kunne ikke registrere Madplan MCP: %s", err)
+
     return True
 
 
@@ -56,6 +63,7 @@ async def async_reload_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload a config entry."""
+    async_unregister_madplan_mcp(hass)
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if unload_ok:
         coordinator: MadplanCoordinator = hass.data[DOMAIN].pop(entry.entry_id)
