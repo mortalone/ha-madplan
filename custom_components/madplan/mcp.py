@@ -23,6 +23,7 @@ DATA_MCP_UNSUB = "madplan_mcp_unsub"
 class HentUgensBriefingTool(llm.Tool):
     """Tool to fetch weekly schedule, dietary rules, replenishment radar and best offers."""
 
+    integration = DOMAIN
     name = "hentUgensBriefing"
     description = (
         "Henter ugens live briefing fra Home Assistant (Quinyx vagter for Jacob og Lotte, "
@@ -41,9 +42,62 @@ class HentUgensBriefingTool(llm.Tool):
         return await async_get_ugens_briefing(hass)
 
 
+class HentRemaIndkobslisteTool(llm.Tool):
+    """Tool to fetch the current live REMA 1000 grocery list from Home Assistant."""
+
+    integration = DOMAIN
+    name = "hentRemaIndkobsliste"
+    description = (
+        "Henter den aktuelle live REMA 1000 indkøbsliste fra Home Assistant (Middagsro). "
+        "Viser både varer der mangler at blive købt (aktive på listen) og varer der allerede er streget ud / købt."
+    )
+    parameters = vol.Schema({})
+
+    async def async_call(
+        self,
+        hass: HomeAssistant,
+        tool_input: llm.ToolInput,
+        llm_context: llm.LLMContext,
+    ) -> dict[str, Any]:
+        """Fetch and return the REMA grocery list."""
+        mangler = []
+        streget_ud = []
+        try:
+            todo_res = await hass.services.async_call(
+                "todo",
+                "get_items",
+                {"status": ["needs_action", "completed"]},
+                target={"entity_id": "todo.middagsro_indkobsliste"},
+                blocking=True,
+                return_response=True,
+            )
+            if isinstance(todo_res, dict):
+                s_res = todo_res.get("service_response") or todo_res
+                items = s_res.get("todo.middagsro_indkobsliste", {}).get("items", [])
+                for item in items:
+                    summary = item.get("summary", "").strip()
+                    desc = item.get("description", "")
+                    entry = f"{summary} ({desc})" if desc else summary
+                    if item.get("status") == "completed":
+                        streget_ud.append(entry)
+                    else:
+                        mangler.append(entry)
+        except Exception as err:
+            _LOGGER.warning("Kunne ikke hente REMA indkøbsliste: %s", err)
+            return {"status": "error", "message": str(err)}
+
+        return {
+            "status": "success",
+            "antal_mangler": len(mangler),
+            "mangler_at_kobe": mangler,
+            "allerede_streget_ud": streget_ud,
+        }
+
+
 class TilfojVarerTilRemaTool(llm.Tool):
     """Tool to add approved items directly to the shared REMA 1000 grocery list."""
 
+    integration = DOMAIN
     name = "tilfojVarerTilRema"
     description = (
         "Lægger godkendte varer og butiksnoter direkte i familiens fælles REMA 1000 indkøbsliste "
@@ -107,10 +161,12 @@ class MadplanLlmApi(llm.API):
         prompt = (
             "Du er familiens personlige madplan- og indkøbsassistent. "
             "Brug 'hentUgensBriefing' til at hente ugens kalendervagter, favoritter, sæson, radar og tilbud. "
+            "Brug 'hentRemaIndkobsliste' til at se hvad der aktuelt står på REMA 1000 indkøbslisten, eller om varer allerede er streget ud / købt. "
             "Brug 'tilfojVarerTilRema' til at lægge godkendte varer direkte i familiens REMA 1000 indkøbsliste."
         )
         tools = [
             HentUgensBriefingTool(),
+            HentRemaIndkobslisteTool(),
             TilfojVarerTilRemaTool(),
         ]
         return llm.APIInstance(self, prompt, llm_context, tools)
@@ -127,7 +183,6 @@ def async_register_madplan_mcp(
 
     unsub = llm.async_register_api(hass, api)
     hass.data.setdefault(DOMAIN, {})[DATA_MCP_UNSUB] = unsub
-    entry.async_on_unload(unsub)
 
     _LOGGER.info(
         "Madplan LLM API registreret! Eksponeret via Home Assistant MCP på /api/mcp/madplan"
@@ -138,5 +193,8 @@ def async_unregister_madplan_mcp(hass: HomeAssistant) -> None:
     """Unregister the Madplan LLM API."""
     unsub = hass.data.get(DOMAIN, {}).pop(DATA_MCP_UNSUB, None)
     if unsub:
-        unsub()
-        _LOGGER.info("Madplan LLM API afregistreret.")
+        try:
+            unsub()
+            _LOGGER.info("Madplan LLM API afregistreret.")
+        except (KeyError, Exception) as err:
+            _LOGGER.debug("Fejl ved afregistrering af Madplan LLM API ignoreret: %s", err)
