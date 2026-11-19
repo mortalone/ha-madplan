@@ -334,6 +334,24 @@ async def _build_ugens_briefing(hass: HomeAssistant) -> dict[str, Any]:
 
     mangler = [i.get("summary") for i in todo_items if i.get("summary")]
 
+    # 7. Fetch Google Docs meal plan & 4-week history from madplan sensor
+    doc_state = hass.states.get("sensor.madplan_dagens_ret")
+    google_doc_data: dict[str, Any] = {}
+    history_preview = ""
+    if doc_state:
+        attrs = doc_state.attributes
+        google_doc_data = {
+            "dagens_ret": doc_state.state,
+            "dagens_kok": attrs.get("dagens_kok"),
+            "dagens_note": attrs.get("dagens_note"),
+            "aktuel_uge_nummer": attrs.get("uge"),
+            "ugens_madplan": attrs.get("ugens_madplan", []),
+            "naeste_uge_nummer": attrs.get("naeste_uge_nummer"),
+            "naeste_uges_madplan": attrs.get("naeste_uges_madplan", []),
+            "google_doc_url": attrs.get("google_doc_url"),
+        }
+        history_preview = attrs.get("preview", "")
+
     return {
         "status": "success",
         "standard_personer": 5,
@@ -356,5 +374,8 @@ async def _build_ugens_briefing(hass: HomeAssistant) -> dict[str, Any]:
                 "fremhæv det i chatten og tilføj varen til REMA-listen som en uspecificeret note med butiksnavn."
             ),
         },
+        "google_docs_madplan": google_doc_data,
+        "historik_seneste_fire_uger": history_preview,
+        "madplan_historik_og_dokument": history_preview,
         "uge_oversigt": days,
     }
