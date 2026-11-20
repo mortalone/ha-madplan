@@ -44,6 +44,11 @@
       "opdater": {
         "name": "Opdater madplan"
       }
+    },
+    "calendar": {
+      "madplan": {
+        "name": "Madplan"
+      }
     }
   }
 }
