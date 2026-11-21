@@ -116,13 +116,13 @@ async def _build_ugens_briefing(hass: HomeAssistant) -> dict[str, Any]:
             "Husk faste efterårstraditioner som Mortensaften (and)."
         )
 
-    # 1. Fetch calendar events for next 8 days
+    # 1. Fetch calendar events for next 14 days (covering full upcoming week)
     cal_events_dict: dict[str, Any] = {}
     try:
         cal_res = await hass.services.async_call(
             "calendar",
             "get_events",
-            {"duration": {"days": 8}},
+            {"duration": {"days": 14}},
             target={"entity_id": CALENDARS},
             blocking=True,
             return_response=True,
@@ -339,9 +339,11 @@ async def _build_ugens_briefing(hass: HomeAssistant) -> dict[str, Any]:
     s_events = cal_events_dict.get(silje_cal, {}).get("events", [])
     h_events = cal_events_dict.get(hol_cal, {}).get("events", []) + cal_events_dict.get(dnk_cal, {}).get("events", [])
 
-    # 6. Build day-by-day overview for next 7 days
+    # 6. Build day-by-day overview for today, tomorrow, and entire upcoming week (through Sunday)
     days: list[dict[str, Any]] = []
-    for i in range(1, 8):
+    days_to_end_of_next_week = (6 - now.weekday()) + 7
+    total_days = max(10, days_to_end_of_next_week + 1)
+    for i in range(0, total_days):
         target_dt = now + datetime.timedelta(days=i)
         target_date = target_dt.strftime("%Y-%m-%d")
         target_md = target_dt.strftime("%m-%d")
