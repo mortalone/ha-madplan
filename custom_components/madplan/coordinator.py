@@ -12,6 +12,7 @@ import aiohttp
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.event import async_track_time_change
+from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 import homeassistant.util.dt as dt_util
 
@@ -172,6 +173,8 @@ class MadplanCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             name=DOMAIN,
         )
         self.entry_data = entry_data
+        self._store = Store(hass, 1, "madplan_meal_history")
+        self.persistent_history: dict[str, Any] = {}
         self._unsub_time: Any = None
         self._setup_schedule()
 
@@ -441,6 +444,57 @@ class MadplanCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             except Exception as sync_err:
                 _LOGGER.warning("Kunne ikke opdatere %s: %s", sync_target, sync_err)
 
+        # Gem madplan persistent i Home Assistant, så historik bevares selvom brugeren sletter uger i Google Doc
+        persistent_history: dict[str, Any] = {}
+        try:
+            persistent_history = await self._store.async_load() or {}
+            if not isinstance(persistent_history, dict):
+                persistent_history = {}
+
+            if ugens_madplan:
+                planned_dishes = [
+                    d.get("ret")
+                    for d in ugens_madplan
+                    if d.get("er_planlagt")
+                    and d.get("ret") not in ["Ikke planlagt", "Ikke fundet"]
+                ]
+                if planned_dishes:
+                    persistent_history[f"{iso_year}-W{week_number:02d}"] = {
+                        "uge": week_number,
+                        "aar": iso_year,
+                        "retter": planned_dishes,
+                        "detaljer": ugens_madplan,
+                        "opdateret": now.isoformat(),
+                    }
+
+            # Scan også de seneste uger fra teksten, hvis de ikke allerede findes i store
+            for offset in range(1, 6):
+                past_dt = now - timedelta(days=7 * offset)
+                p_year, p_week, _ = past_dt.isocalendar()
+                key = f"{p_year}-W{p_week:02d}"
+                if key not in persistent_history:
+                    past_plan = get_week_plan(text_preview, p_week)
+                    if past_plan:
+                        p_dishes = [
+                            d.get("ret")
+                            for d in past_plan
+                            if d.get("er_planlagt")
+                            and d.get("ret") not in ["Ikke planlagt", "Ikke fundet"]
+                        ]
+                        if p_dishes:
+                            persistent_history[key] = {
+                                "uge": p_week,
+                                "aar": p_year,
+                                "retter": p_dishes,
+                                "detaljer": past_plan,
+                                "opdateret": now.isoformat(),
+                            }
+
+            await self._store.async_save(persistent_history)
+            self.persistent_history = persistent_history
+        except Exception as store_err:
+            _LOGGER.warning("Fejl ved gemning af persistent madhistorik: %s", store_err)
+
         return {
             "dagens_ret": dagens_ret,
             "dagens_kok": dagens_kok,
@@ -453,7 +507,8 @@ class MadplanCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "dato": date_str,
             "sidst_opdateret": now.isoformat(),
             "google_doc_url": self.google_doc_url,
-            "raw_text_preview": text_preview[:2000],
+            "raw_text_preview": text_preview[:8000],
+            "persistent_history": persistent_history,
         }
 
 

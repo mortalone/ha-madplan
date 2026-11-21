@@ -68,5 +68,6 @@ class MadplanDishSensor(CoordinatorEntity[MadplanCoordinator], SensorEntity):
             "sidst_opdateret": self.coordinator.data.get("sidst_opdateret"),
             "google_doc_url": self.coordinator.data.get("google_doc_url"),
             "preview": self.coordinator.data.get("raw_text_preview"),
+            "persistent_history": self.coordinator.data.get("persistent_history", {}),
         }
 

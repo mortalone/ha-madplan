@@ -151,7 +151,28 @@ async def _build_ugens_briefing(hass: HomeAssistant) -> dict[str, Any]:
     except Exception as err:
         _LOGGER.warning("Kunne ikke hente to-do varer til briefing: %s", err)
 
-    # 3. Read rules from input_text helpers (with clean fallbacks)
+    # 3. Read custom rules from todo.familiens_madregler
+    todo_rules: list[str] = []
+    try:
+        rules_res = await hass.services.async_call(
+            "todo",
+            "get_items",
+            {"status": ["needs_action"]},
+            target={"entity_id": "todo.familiens_madregler"},
+            blocking=True,
+            return_response=True,
+        )
+        if isinstance(rules_res, dict):
+            s_res = rules_res.get("service_response") or rules_res
+            items = (
+                s_res.get("todo.familiens_madregler", {}).get("items", [])
+                if isinstance(s_res, dict)
+                else []
+            )
+            todo_rules = [i.get("summary") for i in items if i.get("summary")]
+    except Exception as err:
+        _LOGGER.warning("Kunne ikke hente regler fra todo.familiens_madregler: %s", err)
+
     def _get_helper(entity_id: str, default: str) -> str:
         state = hass.states.get(entity_id)
         if state and state.state not in ["unknown", "unavailable", ""]:
@@ -159,6 +180,7 @@ async def _build_ugens_briefing(hass: HomeAssistant) -> dict[str, Any]:
         return default
 
     regler = {
+        "brugerens_aktive_regler": todo_rules,
         "jacob_kok": _get_helper(
             "input_text.regel_jacob_kok", "Enkle hverdagsretter, max 30-40 minutter"
         ),
@@ -390,6 +412,8 @@ async def _build_ugens_briefing(hass: HomeAssistant) -> dict[str, Any]:
     history_preview = ""
     if doc_state:
         attrs = doc_state.attributes
+        history_preview = attrs.get("preview", "")
+        persistent_history = attrs.get("persistent_history", {})
         google_doc_data = {
             "dagens_ret": doc_state.state,
             "dagens_kok": attrs.get("dagens_kok"),
@@ -399,8 +423,9 @@ async def _build_ugens_briefing(hass: HomeAssistant) -> dict[str, Any]:
             "naeste_uge_nummer": attrs.get("naeste_uge_nummer"),
             "naeste_uges_madplan": attrs.get("naeste_uges_madplan", []),
             "google_doc_url": attrs.get("google_doc_url"),
+            "google_doc_raat_indhold": history_preview,
+            "persistent_madhistorik": persistent_history,
         }
-        history_preview = attrs.get("preview", "")
 
     return {
         "status": "success",
