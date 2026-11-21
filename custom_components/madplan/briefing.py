@@ -200,6 +200,7 @@ async def _build_ugens_briefing(hass: HomeAssistant) -> dict[str, Any]:
             "Fredag hyggemad (pizza/burger/tacos), lør/søn god steg eller simremad",
         ),
         "tilbud_inspiration": "Kig efter ugens tilbud og lad dem inspirere ugens kød og råvarer, men lad ikke planen være 100% dikteret af tilbud.",
+        "butiksprioritering_tilbud": "Lokale butikker prioriteres ALTID først (REMA 1000 altid nr. 1, derefter Netto og SuperBrugsen). Herefter baseret på afstand: Meny (Maribo), Føtex, Kvickly og til sidst SPAR. Hvis lokale butikker har varen på tilbud, skal tilbud fra fjernere butikker IKKE foreslås.",
         "inspiration_google_doc": "Hent gerne inspiration i alle de retter, der er skrevet i Google Docs dokumentet gennem årene (familiens gennemprøvede livretter).",
         "nye_spaendende_retter": "Foreslå også meget gerne nye, spændende retter udefra, som er varierede og passer til familiens smag, sæson og køkkenniveau.",
         "ingen_gentagelser_paa_ugen": "Ingen to ens retter på en uge, MEDMINDRE der planlægges store portioner, som kan spises dagen efter eller forskudt med en dag imellem (f.eks. til dage hvor ungerne er alene hjemme).",
@@ -234,6 +235,37 @@ async def _build_ugens_briefing(hass: HomeAssistant) -> dict[str, Any]:
     }
 
     # 4. Read best offers from sensors (split into active now and upcoming)
+    def _store_rank(store_name: str) -> int:
+        s = (store_name or "").lower().strip()
+        if "rema" in s:
+            return 1
+        if "netto" in s:
+            return 2
+        if "superbrugsen" in s or "super brugsen" in s or "brugsen" in s:
+            return 3
+        if "meny" in s:
+            return 4
+        if "føtex" in s or "fotex" in s:
+            return 5
+        if "kvickly" in s:
+            return 6
+        if "spar" in s:
+            return 7
+        return 99
+
+    def _pick_best_by_store_priority(offers_list: list[dict[str, Any]]) -> dict[str, Any] | None:
+        if not offers_list:
+            return None
+        # Tier 1: Local (REMA 1000, Netto, SuperBrugsen)
+        # Tier 2: Meny Maribo
+        # Tier 3: Føtex, Kvickly, SPAR and others
+        tier1 = [o for o in offers_list if _store_rank(o.get("store", "")) <= 3]
+        tier2 = [o for o in offers_list if _store_rank(o.get("store", "")) == 4]
+        tier3 = [o for o in offers_list if _store_rank(o.get("store", "")) > 4]
+
+        candidates = tier1 if tier1 else (tier2 if tier2 else tier3)
+        return min(candidates, key=lambda x: (_store_rank(x.get("store", "")), x.get("price", 9999)))
+
     def _get_best_offer(sensor_id: str) -> dict[str, Any] | None:
         state = hass.states.get(sensor_id)
         if not state:
@@ -256,8 +288,8 @@ async def _build_ugens_briefing(hass: HomeAssistant) -> dict[str, Any]:
                 elif f_dt > now_dt:
                     upcoming_list.append(o)
 
-        best_act = min(active_list, key=lambda x: x.get("price", 9999)) if active_list else None
-        best_up = min(upcoming_list, key=lambda x: x.get("price", 9999)) if upcoming_list else None
+        best_act = _pick_best_by_store_priority(active_list)
+        best_up = _pick_best_by_store_priority(upcoming_list)
 
         result: dict[str, Any] = {}
         if best_act:
