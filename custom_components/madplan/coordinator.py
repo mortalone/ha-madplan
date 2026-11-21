@@ -132,14 +132,31 @@ def parse_week_section(content: str) -> list[dict[str, Any]]:
 
 
 def get_week_plan(doc_text: str, target_week: int) -> list[dict[str, Any]] | None:
-    """Find and parse a specific week number from the Google Doc text."""
+    """Find and parse a specific week number from the Google Doc text.
+    
+    The Google Doc is in reverse chronological order (newest at the top).
+    Only inspect entries in the current year's cycle (before week numbers jump back up to previous year's 50-52).
+    """
     weeks = re.split(r"(?i)(?:^|\n)\s*(?:madplan\s*)?uge\s*(\d+)", doc_text)
+    entries = []
     for i in range(1, len(weeks), 2):
         try:
-            if int(weeks[i]) == target_week:
-                return parse_week_section(weeks[i + 1])
+            entries.append((int(weeks[i]), weeks[i + 1]))
         except (ValueError, IndexError):
             continue
+
+    current_year_entries = []
+    prev_w = None
+    for w, content in entries:
+        if prev_w is not None and w > prev_w + 3:
+            # Jumped to previous year's week numbers (e.g. week 1 -> week 52)
+            break
+        current_year_entries.append((w, content))
+        prev_w = w
+
+    for w, content in current_year_entries:
+        if w == target_week:
+            return parse_week_section(content)
     return None
 
 

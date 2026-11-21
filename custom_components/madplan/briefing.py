@@ -13,7 +13,7 @@ _LOGGER = logging.getLogger(__name__)
 
 _CACHED_BRIEFING: dict[str, Any] | None = None
 _CACHE_TIMESTAMP: datetime.datetime | None = None
-_CACHE_TTL = datetime.timedelta(minutes=30)
+_CACHE_TTL = datetime.timedelta(minutes=5)
 _FETCH_LOCK: asyncio.Lock | None = None
 
 
@@ -177,6 +177,10 @@ async def _build_ugens_briefing(hass: HomeAssistant) -> dict[str, Any]:
             "input_text.regel_weekendmad",
             "Fredag hyggemad (pizza/burger/tacos), lør/søn god steg eller simremad",
         ),
+        "tilbud_inspiration": "Kig efter ugens tilbud og lad dem inspirere ugens kød og råvarer, men lad ikke planen være 100% dikteret af tilbud.",
+        "inspiration_google_doc": "Hent gerne inspiration i alle de retter, der er skrevet i Google Docs dokumentet gennem årene (familiens gennemprøvede livretter).",
+        "nye_spaendende_retter": "Foreslå også meget gerne nye, spændende retter udefra, som er varierede og passer til familiens smag, sæson og køkkenniveau.",
+        "ingen_gentagelser_paa_ugen": "Ingen to ens retter på en uge, MEDMINDRE der planlægges store portioner, som kan spises dagen efter eller forskudt med en dag imellem (f.eks. til dage hvor ungerne er alene hjemme).",
         "rotation_uger": 4,
     }
 
